@@ -30,12 +30,18 @@ def saudacao():
 
 def extrair_medidas_avancado(texto):
     texto = texto.lower()
+    
+    # Substitui quebras de linha por um separador '|'
+    texto = texto.replace('\n', '|')
+    # Substitui a palavra ' e ' por '|'
     texto = re.sub(r'\s+e\s+', '|', texto)
-    texto = texto.replace('\n', '|').replace(',', '|')
+    # Substitui vírgula SEGUIDA DE ESPAÇO por '|' (Isso evita quebrar números como 140,50)
+    texto = re.sub(r',\s+', '|', texto)
     
     blocos = texto.split('|')
     itens_encontrados = []
     
+    # Regex agora suporta números com decimais (ponto e vírgula)
     padrao_medida = r'(\d+[.,]?\d*)\s*[xX*]\s*(\d+[.,]?\d*)'
     
     for bloco in blocos:
@@ -55,6 +61,8 @@ def extrair_medidas_avancado(texto):
             
             l = float(l_raw.replace(',', '.'))
             a = float(a_raw.replace(',', '.'))
+            
+            # Converte para metros caso tenha sido digitado em centímetros (ex: 140.50)
             if l > 4: l /= 100
             if a > 4: a /= 100
             
@@ -81,9 +89,21 @@ def buscar_preco(largura, altura):
     except:
         return None
 
+def formata_medida_visual(medida_em_metros):
+    """Transforma a medida decimal para aparecer certinho em cm na tela, preservando casas decimais."""
+    # Multiplica por 100 e arredonda para 2 casas para evitar lixo de memória (ex: 140.500000001)
+    cm = round(medida_em_metros * 100, 2)
+    
+    # Se for um número inteiro (ex: 60.0), mostra só "60"
+    if cm == int(cm):
+        return str(int(cm))
+    else:
+        # Se for fracionado, troca o ponto pela vírgula (ex: 140,5)
+        return str(cm).replace('.', ',')
+
 # --- 4. INTERFACE ---
 st.title("🟠 Orçador Shopee")
-st.caption("Cole a mensagem do cliente (ex: 'Preciso de 2 telas 60x120')")
+st.caption("Cole a mensagem do cliente (ex: 'Preciso de 2 telas 60x124,50')")
 
 pergunta = st.text_area("Mensagem do Cliente:", height=100, label_visibility="collapsed")
 
@@ -98,35 +118,50 @@ if st.button("Gerar Resposta 🚀", type="primary", use_container_width=True):
         else:
             linhas_orcamento = []
             total_geral = 0
+            total_telas_pedido = 0 # Usado para saber se é só 1 tela no orçamento todo
             
             for i, (qtd, l, a) in enumerate(itens):
                 preco_unitario = buscar_preco(l, a)
-                l_cm, a_cm = int(l*100), int(a*100)
+                total_telas_pedido += qtd
+                
+                # Usa a nova formatação para manter a medida exata informada (Ex: 124,5cm)
+                l_cm_str = formata_medida_visual(l)
+                a_cm_str = formata_medida_visual(a)
                 
                 if preco_unitario:
                     preco_total_item = preco_unitario * qtd
                     total_geral += preco_total_item
                     
-                    # Removido o "Tela {num}" conforme solicitado
                     if qtd > 1:
-                        linhas_orcamento.append(f"• {qtd} x Tela ({l_cm}cm x {a_cm}cm): R$ {preco_total_item:.2f} (R$ {preco_unitario:.2f} cada)")
+                        linhas_orcamento.append(f"• {qtd} x Tela ({l_cm_str}cm x {a_cm_str}cm): R$ {preco_total_item:.2f} (R$ {preco_unitario:.2f} cada)")
                     else:
-                        linhas_orcamento.append(f"• Tela ({l_cm}cm x {a_cm}cm): R$ {preco_unitario:.2f}")
+                        linhas_orcamento.append(f"• Tela ({l_cm_str}cm x {a_cm_str}cm): R$ {preco_unitario:.2f}")
                 else:
-                    linhas_orcamento.append(f"• {qtd} x Tela ({l_cm}x{a_cm}): ⚠️ Medida excede o padrão (Máx 1.50x3.00)")
+                    linhas_orcamento.append(f"• {qtd} x Tela ({l_cm_str}cm x {a_cm_str}cm): ⚠️ Medida excede o padrão (Máx 1.50x3.00)")
 
             texto_atencao = """ATENÇÃO:
 Nossas telas são produzidas com medidas exatas, então verifique se com a medida que me informou você já considerou a bordinha da janela para fazer a instalação onde o velcro é fixado, caso a medida que me informou seja apenas do vão acrescente 3cm na largura total e 3cm na altura total e me informe novamente. Obrigada"""
 
-            texto_final = (
-                f"{saudacao()}, tudo bem?\n\n"
-                f"O custo para a produção fica no total de: R$ {total_geral:.2f}\n"
-                f"{chr(10).join(linhas_orcamento)}\n\n"
-                f"Caso tenha interesse, me informe seu NOME e SOBRENOME que crio a variação no anúncio de personalizadas.\n"
-                f"{texto_atencao}"
-            )
+            # Lógica para exibir ou não a linha do total de custo geral
+            if total_telas_pedido == 1:
+                # Se for só 1 tela, não escreve "O custo para a produção fica no total de..."
+                texto_final = (
+                    f"{saudacao()}, tudo bem?\n\n"
+                    f"{chr(10).join(linhas_orcamento)}\n\n"
+                    f"Caso tenha interesse, me informe seu NOME e SOBRENOME que crio a variação no anúncio de personalizadas.\n"
+                    f"{texto_atencao}"
+                )
+            else:
+                # Se for mais de 1 tela, mostra o resumo do total
+                texto_final = (
+                    f"{saudacao()}, tudo bem?\n\n"
+                    f"O custo para a produção fica no total de: R$ {total_geral:.2f}\n"
+                    f"{chr(10).join(linhas_orcamento)}\n\n"
+                    f"Caso tenha interesse, me informe seu NOME e SOBRENOME que crio a variação no anúncio de personalizadas.\n"
+                    f"{texto_atencao}"
+                )
             
-            # Formata para padrão brasileiro (troca ponto por vírgula no visual)
+            # Formata para padrão brasileiro (troca ponto por vírgula no visual final)
             texto_final_display = texto_final.replace('.', ',')
             
             st.success(f"Orçamento Gerado! Total: R$ {total_geral:.2f}")
